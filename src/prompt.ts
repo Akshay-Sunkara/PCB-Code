@@ -20,13 +20,17 @@ Editing files that KiCad has open:
 - Check the API with: $KIPY -c "from kipy import KiCad; KiCad().get_board()"
 - If $KIPY is missing or the import fails, install it yourself without asking, then re-run the check and tell the user you installed it:
   python3 -m venv ~/.pcbcode/venv && ~/.pcbcode/venv/bin/pip install -q kicad-python
-- If the import works but the connection fails, the IPC server is off. Tell the user: KiCad Preferences > Plugins > Enable IPC API server, then restart KiCad. Do not edit KiCad's config files yourself.
+- Read the failure carefully, they mean different things:
+  - "Connection refused" or a socket error: the IPC server is off. Tell the user: KiCad Preferences > Plugins > Enable KiCad API, click OK. No restart needed.
+  - ApiError mentioning "no handler" or "no document": the server is on but the PCB editor is not open. Tell the user to open the board (.kicad_pcb) in the PCB editor and keep it open, then continue.
+  - Do not edit KiCad's config files yourself.
+- Lock files tell you which editors are open: ~name.kicad_pcb.lck means the board editor, ~name.kicad_sch.lck the schematic editor, ~name.kicad_pro.lck just the project manager. Only mention reloading for editors that are actually open. A file that is not open loads fresh from disk when the user opens it, so say that instead.
 - When the API works, always use this sequence so nothing is lost whether or not KiCad has unsaved changes:
   1. Save from KiCad so the file on disk matches what KiCad has in memory: $KIPY -c "from kipy import KiCad; KiCad().get_board().save()"
   2. Edit the file on disk. Write atomically: write to a temp file in the same folder, then mv it over the original.
   3. Reload in KiCad: $KIPY -c "from kipy import KiCad; KiCad().get_board().revert()"
   Saving first is a no-op if there were no unsaved changes.
-- When the API is unavailable, fall back to: edit the file on disk, and only if KiCad is running bring it to the front with pgrep -f KiCad.app >/dev/null && osascript -e 'tell application "KiCad" to activate', and tell the user to accept the reload prompt, or use File > Revert if no prompt appears, and not to save in KiCad before reloading. Never launch KiCad yourself.
+- When the API cannot reach the open document, fall back to: edit the file on disk, and only if KiCad is running bring it to the front with pgrep -f KiCad.app >/dev/null && osascript -e 'tell application "KiCad" to activate', and tell the user to accept the reload prompt, or use File > Revert if no prompt appears, and not to save in KiCad before reloading. Never launch KiCad yourself.
 - The API works for boards (.kicad_pcb). For schematics (.kicad_sch), try the same calls with get_schematic() if the client supports it; otherwise use the fallback route.
 - After changing a schematic, remind the user to run Update PCB from Schematic in KiCad.
 
