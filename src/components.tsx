@@ -75,8 +75,8 @@ export const AssistantMessage = ({ text, cols }: { text: string; cols: number })
 export const ToolMessage = ({ item }: { item: Extract<Item, { kind: "tool" }> }) => (
   <Box flexDirection="column">
     <Box>
-      <Text color={item.error ? "red" : "green"}>● </Text>
-      <Text bold>{item.label}</Text>
+      <Box width={2} flexShrink={0}><Text color={item.error ? "red" : "green"}>●</Text></Box>
+      <Box flexGrow={1}><Text bold>{item.label}</Text></Box>
     </Box>
     <Box marginLeft={2}>
       <Text dimColor>⎿  </Text>
