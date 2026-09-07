@@ -25,15 +25,25 @@ export type Approval = { command: string; note?: string; resolve: (choice: "yes"
 
 export const OPTIONS = ["Yes", "Yes, allow all commands during this session (shift+tab)", "No, and tell PCB Code what to do differently (esc)"];
 
-export const useColumns = () => {
+export const useColumns = (onReset?: () => void) => {
   const { stdout } = useStdout();
   const [cols, setCols] = useState(stdout.columns || 80);
+  const [generation, setGeneration] = useState(0);
   useEffect(() => {
-    const onResize = () => setCols(stdout.columns || 80);
+    let timer: NodeJS.Timeout | undefined;
+    const onResize = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        stdout.write("\x1b[2J\x1b[3J\x1b[H");
+        onReset?.();
+        setCols(stdout.columns || 80);
+        setGeneration((g) => g + 1);
+      }, 150);
+    };
     stdout.on("resize", onResize);
-    return () => { stdout.off("resize", onResize); };
+    return () => { clearTimeout(timer); stdout.off("resize", onResize); };
   }, [stdout]);
-  return cols;
+  return { cols, generation };
 };
 
 export const Welcome = ({ cwd }: { cwd: string }) => (

@@ -14,7 +14,8 @@ import OpenAI from "openai";
 import { MODEL, VERBS, getWorkDir, makeClient, setWorkDir } from "./config.js";
 import { system } from "./prompt.js";
 import { TOOLS, label, runBash, runGrep, type ToolOutcome } from "./tools.js";
-import { buildUserContent, parseAttachments } from "./attachments.js";
+import { buildUserContent, parseAttachments, type Attachment } from "./attachments.js";
+import { PLACEHOLDER, asDroppedPath, expand, newPending, readClipboardImage, type Pending } from "./clipboard.js";
 import { BLOCKED_MESSAGE, fmt, loadAccount, saveAccount, signup, type Account } from "./account.js";
 import {
   ApprovalPrompt, AssistantMessage, DoneLine, Input, OPTIONS, Signup, Spinner, ToolMessage, UserMessage, Welcome, useColumns,
@@ -23,8 +24,10 @@ import {
 
 const clock = () => new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
-export const App = () => {
-  const cols = useColumns();
+export const App = ({ onResizeReset }: { onResizeReset?: () => void }) => {
+  const { cols, generation } = useColumns(onResizeReset);
+  const pending = useRef<Pending>(newPending());
+  const counter = useRef(0);
   const [value, setValue] = useState("");
   const [items, setItems] = useState<Item[]>([{ kind: "welcome", cwd: getWorkDir() }]);
   const [streaming, setStreaming] = useState<string | null>(null);
@@ -77,12 +80,15 @@ export const App = () => {
     setSigningUp(false);
   };
 
-  const send = async (prompt: string) => {
+  const send = async (shown: string) => {
     if (!client.current) return;
-    const attachments = parseAttachments(prompt);
+    const prompt = expand(shown, pending.current);
+    const images: Attachment[] = [...pending.current.images].map(([n, abs]) => ({ name: `[Image #${n}]`, abs, mime: "image/png" }));
+    pending.current = newPending();
+    const attachments = [...parseAttachments(prompt), ...images];
     const folder = attachments.filter((a) => a.dir).at(-1);
     if (folder) setWorkDir(folder.abs);
-    push({ kind: "user", text: prompt, attachments });
+    push({ kind: "user", text: shown, attachments });
     convo.current.push({ role: "user", content: buildUserContent(prompt, attachments) });
     setStreaming("");
     setTokens(0);
@@ -107,26 +113,23 @@ export const App = () => {
             setTokens(total + Math.round(text.length / 4));
           } else if (event.type === "response.completed") {
             setUsed(seenBefore + (event.response.usage?.total_tokens ?? 0));
-          } else if (event.type === "response.output_item.done" && event.item.type === "function_call") {
-            calls.push(event.item);
-          } else if (event.type === "response.output_item.done" && event.item.type === "web_search_call") {
-            const action: any = event.item.action ?? {};
-            if (action.type === "open_page") push({ kind: "tool", label: `Fetch(${action.url ?? ""})`, summary: "Opened page" });
-            else if (action.type === "find") push({ kind: "tool", label: `Find("${action.pattern ?? ""}" in ${action.url ?? ""})`, summary: "Searched page" });
-            else push({ kind: "tool", label: `Web Search("${action.query ?? ""}")`, summary: "Did 1 search" });
+          } else if (event.type === "response.output_item.done") {
             convo.current.push(event.item as any);
+            if (event.item.type === "function_call") calls.push(event.item);
+            else if (event.item.type === "web_search_call") {
+              const action: any = event.item.action ?? {};
+              if (action.type === "open_page") push({ kind: "tool", label: `Fetch(${action.url ?? ""})`, summary: "Opened page" });
+              else if (action.type === "find") push({ kind: "tool", label: `Find("${action.pattern ?? ""}" in ${action.url ?? ""})`, summary: "Searched page" });
+              else push({ kind: "tool", label: `Web Search("${action.query ?? ""}")`, summary: "Did 1 search" });
+            }
           }
         }
         if (signal.aborted) text += text ? "\n[interrupted]" : "[interrupted]";
-        if (text.trim()) {
-          push({ kind: "assistant", text });
-          convo.current.push({ role: "assistant", content: text });
-        }
+        if (text.trim()) push({ kind: "assistant", text });
         setStreaming("");
         if (signal.aborted || calls.length === 0) break;
 
         for (const call of calls) {
-          convo.current.push({ type: "function_call", call_id: call.call_id, name: call.name, arguments: call.arguments });
           const args = JSON.parse(call.arguments || "{}");
           let output: string;
           try {
@@ -185,26 +188,43 @@ export const App = () => {
       return;
     }
     if (key.backspace || key.delete) {
-      setValue((v) => v.slice(0, -1));
+      setValue((v) => (PLACEHOLDER.test(v) ? v.replace(PLACEHOLDER, "") : v.slice(0, -1)));
+      return;
+    }
+    if (key.ctrl && input === "v") {
+      const file = readClipboardImage();
+      if (!file) return;
+      const n = ++counter.current;
+      pending.current.images.set(n, file);
+      setValue((v) => `${v}[Image #${n}]`);
       return;
     }
     if (key.ctrl || key.meta || key.upArrow || key.downArrow || key.leftArrow || key.rightArrow || key.tab) return;
-
-    let next = value;
-    for (const ch of input) {
-      if (ch === "\r" || ch === "\n") {
-        if (next.trim() && streaming === null) send(next.trim());
-        next = "";
-      } else {
-        next += ch;
-      }
+    if (key.return || input === "\r" || input === "\n") {
+      if (value.trim() && streaming === null) send(value.trim());
+      setValue("");
+      return;
     }
-    setValue(next);
+    if (input.length > 1) {
+      const text = input.replace(/\r\n?/g, "\n");
+      const dropped = asDroppedPath(text);
+      if (dropped) { setValue((v) => `${v}${v && !v.endsWith(" ") ? " " : ""}@${dropped} `); return; }
+      const lines = text.replace(/\n$/, "").split("\n");
+      if (lines.length > 1) {
+        const n = ++counter.current;
+        pending.current.pastes.set(n, text.replace(/\n$/, ""));
+        setValue((v) => `${v}[Pasted text #${n} +${lines.length} lines]`);
+      } else {
+        setValue((v) => v + lines[0]);
+      }
+      return;
+    }
+    setValue((v) => v + input);
   });
 
   return (
     <>
-      <Static items={items}>
+      <Static key={generation} items={items}>
         {(m, i) => (
           <Box key={i} flexDirection="column" paddingX={1} marginTop={m.kind === "welcome" ? 1 : 0} marginBottom={m.kind === "done" ? 2 : 1}>
             {m.kind === "welcome" ? <Welcome cwd={m.cwd} />

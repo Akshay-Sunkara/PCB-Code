@@ -12,4 +12,4 @@ import { ensureReloadScript } from "./src/kicad.js";
 
 ensureReloadScript();
 
-render(<App />);
+const instance = render(<App onResizeReset={() => instance.clear()} />);
