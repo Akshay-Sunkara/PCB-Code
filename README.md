@@ -11,6 +11,15 @@ you need node 22 or newer.
 npm install -g pcbcode
 ```
 
+if that fails with `EACCES` (permission denied), npm is trying to write to a folder owned by root. point it at your own folder and try again:
+
+```
+npm config set prefix ~/.local
+npm install -g pcbcode
+```
+
+make sure `~/.local/bin` is on your path.
+
 then open your kicad project folder and run it:
 
 ```
