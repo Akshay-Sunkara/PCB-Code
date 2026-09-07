@@ -1,0 +1,47 @@
+{
+  "name": "pcbcode",
+  "version": "0.1.0",
+  "description": "an ai agent for kicad that lives in your terminal",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "server": "node server/index.js",
+    "build": "esbuild cli.tsx --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=dist/cli.js --banner:js='#!/usr/bin/env node'",
+    "prepublishOnly": "npm run build",
+    "dev": "tsx cli.tsx"
+  },
+  "keywords": [
+    "kicad",
+    "pcb",
+    "ai",
+    "cli",
+    "agent"
+  ],
+  "author": "",
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "ink": "^7.1.1",
+    "openai": "^7.10.0",
+    "react": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "@types/react": "^19.2.18",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.13"
+  },
+  "bin": {
+    "pcbcode": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Akshay-Sunkara/PCB-Code.git"
+  },
+  "homepage": "https://github.com/Akshay-Sunkara/PCB-Code"
+}
