@@ -15,27 +15,27 @@ Read a file (for example with cat -n) before editing it. Edit with small, target
 KiCad files (.kicad_sch, .kicad_pcb, .kicad_pro) are S-expressions; keep parentheses balanced.
 
 Editing files that KiCad has open:
-- Before editing a KiCad file, check for a lock file named ~<filename>.lck next to it (ls -a). If it exists the file is open in KiCad. Never delete lock files.
-- KiCad's Python API client (kipy) lives in a private environment at ~/.pcbcode/venv. Use KIPY=~/.pcbcode/venv/bin/python for every kipy call.
-- Check the API with: $KIPY -c "from kipy import KiCad; KiCad().get_board()"
-- If $KIPY is missing or the import fails, install it yourself without asking, then re-run the check and tell the user you installed it:
+- KiCad's Python API client (kipy) lives in a private environment at ~/.pcbcode/venv. Use KIPY=~/.pcbcode/venv/bin/python for every call below.
+- If $KIPY is missing or the import fails, install it yourself without asking, then tell the user you installed it:
   python3 -m venv ~/.pcbcode/venv && ~/.pcbcode/venv/bin/pip install -q kicad-python
-- Read the failure carefully, they mean different things:
-  - "Connection refused" or a socket error: the IPC server is off. Tell the user: KiCad Preferences > Plugins > Enable KiCad API, click OK. No restart needed.
-  - ApiError mentioning "no handler" or "no document": the server is on but the PCB editor is not open. Tell the user to open the board (.kicad_pcb) in the PCB editor and keep it open, then continue.
-  - Do not edit KiCad's config files yourself.
-- Lock files tell you which editors are open: ~name.kicad_pcb.lck means the board editor, ~name.kicad_sch.lck the schematic editor, ~name.kicad_pro.lck just the project manager. Only mention reloading for editors that are actually open. A file that is not open loads fresh from disk when the user opens it, so say that instead.
-- When the API works, always use this sequence so nothing is lost whether or not KiCad has unsaved changes:
-  1. Save from KiCad so the file on disk matches what KiCad has in memory: $KIPY -c "from kipy import KiCad; KiCad().get_board().save()"
+- The helper at ~/.pcbcode/kicad-helper.py is the one way to save and reload inside KiCad. Run it from the project folder:
+  $KIPY ~/.pcbcode/kicad-helper.py status        -> which editors are open, whether the API is on, whether macOS Accessibility is granted
+  $KIPY ~/.pcbcode/kicad-helper.py save sch|pcb   -> save from KiCad so the file on disk matches what KiCad has in memory
+  $KIPY ~/.pcbcode/kicad-helper.py revert sch|pcb -> reload the file from disk inside KiCad
+  It picks the route itself: the KiCad API for the board (and for the schematic on KiCad 11+), or macOS UI scripting for the schematic on KiCad 10. Do not call kipy or osascript for saving and reloading yourself.
+- Run status once before the first KiCad file edit in a session. It asks KiCad which editors are open, which is more reliable than lock files. Never delete lock files (~name.lck).
+- For every edit to a file whose editor is open, do this sequence so nothing is lost whether or not KiCad has unsaved changes:
+  1. $KIPY ~/.pcbcode/kicad-helper.py save sch   (or pcb)
   2. Edit the file on disk. Write atomically: write to a temp file in the same folder, then mv it over the original.
-  3. Reload in KiCad: $KIPY -c "from kipy import KiCad; KiCad().get_board().revert()"
-  Saving first is a no-op if there were no unsaved changes.
-- The API only reaches the board editor. For the schematic editor, and for the board when the API cannot reach it, use the macOS helper at ~/.pcbcode/kicad-reload.applescript instead. It raises the right KiCad window, clicks File > Save or File > Revert, and confirms the dialog. The first argument is the window suffix, "Schematic Editor" or "PCB Editor"; the second is save or revert:
-  1. osascript ~/.pcbcode/kicad-reload.applescript "Schematic Editor" save
-  2. Edit the file on disk atomically.
-  3. osascript ~/.pcbcode/kicad-reload.applescript "Schematic Editor" revert
-  Only run it when that editor is open (check the lock file). Its output says what it did; "no window ending in" means the editor is not open, so skip it and tell the user the file will load when they open it.
-- If osascript fails with "not allowed assistive access" or error -1719, macOS is blocking UI scripting. Tell the user to allow their terminal app under System Settings > Privacy & Security > Accessibility, then retry. Until then, bring KiCad to the front with osascript -e 'tell application "KiCad" to activate' and ask the user to use File > Revert. Never launch KiCad yourself, and never save in an editor after editing its file on disk without reverting first.
+  3. $KIPY ~/.pcbcode/kicad-helper.py revert sch   (or pcb)
+  Saving first is a no-op if there were no unsaved changes. Never save in an editor after editing its file on disk without reverting first.
+- Read the helper's exit code and message:
+  - 0: done, say what it reported.
+  - 2: that editor is not open, so there is nothing to reload; tell the user the file loads fresh when they open it.
+  - 1: it could not do it and the message says why. Relay the message to the user verbatim. Common cases:
+    - "Connection refused": the API server is off. Tell the user: KiCad Preferences > Plugins > Enable KiCad API, click OK. No restart needed.
+    - "macOS is blocking UI scripting for <app>": the helper already opened System Settings > Privacy & Security > Accessibility. Tell the user to tick that app there, restart it if it was already ticked, then retry. Until then bring KiCad forward with osascript -e 'tell application "KiCad" to activate' and ask the user to use File > Revert.
+  - Do not edit KiCad's config files yourself, and never launch KiCad yourself.
 - After changing a schematic, remind the user to run Update PCB from Schematic in KiCad.
 
 Files and folders the user attached with @ are already described in the message.`;
