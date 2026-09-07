@@ -5,7 +5,7 @@ it reads, edits, and reloads your schematic and board files by talking to kicad 
 
 ## install
 
-you need node 22 or newer and python 3.
+you need node 22 or newer and python 3. tested on macos.
 
 ```
 npm install -g pcbcode
@@ -69,3 +69,31 @@ curl -X POST http://localhost:8787/admin/users -H 'authorization: Bearer YOUR_AD
 ```
 
 `GET /admin/users` with the same header lists everyone.
+
+## deploying the proxy to fly.io
+
+this is how the hosted proxy at `pcbcode-proxy.fly.dev` is run. the repo already has the `dockerfile` and `fly.toml`.
+
+```
+brew install flyctl
+fly auth login
+fly apps create pcbcode-proxy
+fly volumes create pcbcode_data --region sjc --size 1 -a pcbcode-proxy --yes
+fly secrets set OPENAI_API_KEY=sk-... ADMIN_KEY=something-long-and-random -a pcbcode-proxy
+fly deploy --ha=false -a pcbcode-proxy
+```
+
+if the first deploy says it couldn't provision ips, run `fly ips allocate-v4 --shared -a pcbcode-proxy` and `fly ips allocate-v6 -a pcbcode-proxy`. then check `https://pcbcode-proxy.fly.dev/health`.
+
+after that, every code change to `server/` ships with `fly deploy --ha=false -a pcbcode-proxy`. `fly logs -a pcbcode-proxy` shows what's happening. the admin curl above works the same against the fly url.
+
+## releasing a new version of the cli
+
+```
+npm run build
+npm version patch
+npm publish --access public
+git push --follow-tags
+```
+
+`npm publish` needs two-factor on your npm account, so run it from your own terminal where npm can open the browser. the build is bundled into `dist/cli.js` by esbuild, and only `dist`, the readme, and the license go into the package.
