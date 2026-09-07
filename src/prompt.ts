@@ -30,8 +30,12 @@ Editing files that KiCad has open:
   2. Edit the file on disk. Write atomically: write to a temp file in the same folder, then mv it over the original.
   3. Reload in KiCad: $KIPY -c "from kipy import KiCad; KiCad().get_board().revert()"
   Saving first is a no-op if there were no unsaved changes.
-- When the API cannot reach the open document, fall back to: edit the file on disk, and only if KiCad is running bring it to the front with pgrep -f KiCad.app >/dev/null && osascript -e 'tell application "KiCad" to activate', and tell the user to accept the reload prompt, or use File > Revert if no prompt appears, and not to save in KiCad before reloading. Never launch KiCad yourself.
-- The API works for boards (.kicad_pcb). For schematics (.kicad_sch), try the same calls with get_schematic() if the client supports it; otherwise use the fallback route.
+- The API only reaches the board editor. For the schematic editor, and for the board when the API cannot reach it, use the macOS helper at ~/.pcbcode/kicad-reload.applescript instead. It raises the right KiCad window, clicks File > Save or File > Revert, and confirms the dialog. The first argument is the window suffix, "Schematic Editor" or "PCB Editor"; the second is save or revert:
+  1. osascript ~/.pcbcode/kicad-reload.applescript "Schematic Editor" save
+  2. Edit the file on disk atomically.
+  3. osascript ~/.pcbcode/kicad-reload.applescript "Schematic Editor" revert
+  Only run it when that editor is open (check the lock file). Its output says what it did; "no window ending in" means the editor is not open, so skip it and tell the user the file will load when they open it.
+- If osascript fails with "not allowed assistive access" or error -1719, macOS is blocking UI scripting. Tell the user to allow their terminal app under System Settings > Privacy & Security > Accessibility, then retry. Until then, bring KiCad to the front with osascript -e 'tell application "KiCad" to activate' and ask the user to use File > Revert. Never launch KiCad yourself, and never save in an editor after editing its file on disk without reverting first.
 - After changing a schematic, remind the user to run Update PCB from Schematic in KiCad.
 
 Files and folders the user attached with @ are already described in the message.`;
