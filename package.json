@@ -1,6 +1,6 @@
 {
   "name": "pcbcode",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "an ai agent for kicad that lives in your terminal",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
