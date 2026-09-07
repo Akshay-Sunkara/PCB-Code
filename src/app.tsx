@@ -11,13 +11,13 @@
 import React, { useRef, useState } from "react";
 import { Box, Static, useInput } from "ink";
 import OpenAI from "openai";
-import { MODEL, VERBS, client, getWorkDir, setWorkDir } from "./config.js";
+import { MODEL, VERBS, getWorkDir, makeClient, setWorkDir } from "./config.js";
 import { system } from "./prompt.js";
 import { TOOLS, label, runBash, runGrep, type ToolOutcome } from "./tools.js";
 import { buildUserContent, parseAttachments } from "./attachments.js";
-import { BLOCKED_MESSAGE, LIMIT, addUsage, getUsed, isBlocked } from "./usage.js";
+import { BLOCKED_MESSAGE, fmt, loadAccount, saveAccount, signup, type Account } from "./account.js";
 import {
-  ApprovalPrompt, AssistantMessage, DoneLine, Input, OPTIONS, Spinner, ToolMessage, UserMessage, Welcome, useColumns,
+  ApprovalPrompt, AssistantMessage, DoneLine, Input, OPTIONS, Signup, Spinner, ToolMessage, UserMessage, Welcome, useColumns,
   type Approval, type Item,
 } from "./components.js";
 
@@ -29,11 +29,16 @@ export const App = () => {
   const [items, setItems] = useState<Item[]>([{ kind: "welcome", cwd: getWorkDir() }]);
   const [streaming, setStreaming] = useState<string | null>(null);
   const [tokens, setTokens] = useState(0);
-  const [auto, setAuto] = useState(true);
-  const [used, setUsed] = useState(getUsed());
+  const [auto, setAuto] = useState(false);
+  const [account, setAccount] = useState<Account | null>(loadAccount());
+  const [signupError, setSignupError] = useState<string | undefined>();
+  const [signingUp, setSigningUp] = useState(false);
+  const [used, setUsed] = useState(0);
+  const [limit, setLimit] = useState(0);
+  const client = useRef(account ? makeClient(account.token) : null);
   const [approval, setApproval] = useState<Approval | null>(null);
   const [choice, setChoice] = useState(0);
-  const autoRef = useRef(true);
+  const autoRef = useRef(false);
   const abort = useRef<AbortController | null>(null);
   const convo = useRef<OpenAI.Responses.ResponseInputItem[]>([]);
 
@@ -58,12 +63,22 @@ export const App = () => {
     throw new Error(`Unknown tool ${name}`);
   };
 
-  const send = async (prompt: string) => {
-    if (isBlocked()) {
-      push({ kind: "user", text: prompt, attachments: [] });
-      push({ kind: "assistant", text: BLOCKED_MESSAGE });
-      return;
+  const finishSignup = async (input: string) => {
+    setSigningUp(true);
+    setSignupError(undefined);
+    try {
+      const a = input.startsWith("pcb_") ? { token: input } : await signup(input);
+      saveAccount(a);
+      client.current = makeClient(a.token);
+      setAccount(a);
+    } catch (err: any) {
+      setSignupError(err?.message ?? String(err));
     }
+    setSigningUp(false);
+  };
+
+  const send = async (prompt: string) => {
+    if (!client.current) return;
     const attachments = parseAttachments(prompt);
     const folder = attachments.filter((a) => a.dir).at(-1);
     if (folder) setWorkDir(folder.abs);
@@ -80,18 +95,18 @@ export const App = () => {
       while (true) {
         let text = "";
         const calls: OpenAI.Responses.ResponseFunctionToolCall[] = [];
-        const stream = await client.responses.create(
-          { model: MODEL, instructions: system(), input: convo.current, tools: TOOLS, stream: true },
-          { signal },
-        );
+        const { data: stream, response } = await client.current
+          .responses.create({ model: MODEL, instructions: system(), input: convo.current, tools: TOOLS, stream: true }, { signal })
+          .withResponse();
+        const seenBefore = Number(response.headers.get("x-pcbcode-used") ?? used);
+        setLimit(Number(response.headers.get("x-pcbcode-limit") ?? limit));
         for await (const event of stream) {
           if (event.type === "response.output_text.delta") {
             text += event.delta;
             setStreaming(text);
             setTokens(total + Math.round(text.length / 4));
           } else if (event.type === "response.completed") {
-            addUsage(event.response.usage?.total_tokens ?? 0);
-            setUsed(getUsed());
+            setUsed(seenBefore + (event.response.usage?.total_tokens ?? 0));
           } else if (event.type === "response.output_item.done" && event.item.type === "function_call") {
             calls.push(event.item);
           } else if (event.type === "response.output_item.done" && event.item.type === "web_search_call") {
@@ -108,10 +123,6 @@ export const App = () => {
           convo.current.push({ role: "assistant", content: text });
         }
         setStreaming("");
-        if (isBlocked()) {
-          push({ kind: "assistant", text: BLOCKED_MESSAGE });
-          break;
-        }
         if (signal.aborted || calls.length === 0) break;
 
         for (const call of calls) {
@@ -130,7 +141,11 @@ export const App = () => {
         }
       }
     } catch (err: any) {
-      if (!signal.aborted) push({ kind: "assistant", text: `Error: ${err?.message ?? err}` });
+      if (err?.status === 429) {
+        push({ kind: "assistant", text: err?.error?.message ?? BLOCKED_MESSAGE });
+        setUsed(Number(err?.headers?.get?.("x-pcbcode-used") ?? used));
+        setLimit(Number(err?.headers?.get?.("x-pcbcode-limit") ?? limit));
+      } else if (!signal.aborted) push({ kind: "assistant", text: `Error: ${err?.message ?? err}` });
     }
 
     const seconds = Math.max(1, Math.round((Date.now() - started) / 1000));
@@ -139,6 +154,18 @@ export const App = () => {
   };
 
   useInput((input, key) => {
+    if (!account) {
+      if (signingUp) return;
+      if (key.backspace || key.delete) { setValue((v) => v.slice(0, -1)); return; }
+      if (key.ctrl || key.meta || key.tab || key.escape || key.upArrow || key.downArrow || key.leftArrow || key.rightArrow) return;
+      let next = value;
+      for (const ch of input) {
+        if (ch === "\r" || ch === "\n") { if (next.trim()) finishSignup(next.trim()); next = ""; }
+        else next += ch;
+      }
+      setValue(next);
+      return;
+    }
     if (key.tab && key.shift) {
       if (approval) approval.resolve("always");
       else toggleAuto();
@@ -192,7 +219,9 @@ export const App = () => {
       <Box flexDirection="column" paddingX={1} paddingBottom={1} gap={1}>
         {streaming !== null && streaming && <AssistantMessage text={streaming} cols={cols} />}
         {streaming !== null && !approval && <Spinner tokens={tokens} />}
-        {approval ? <ApprovalPrompt approval={approval} choice={choice} /> : <Input value={value} cols={cols} auto={auto} used={used} limit={LIMIT} />}
+        {!account ? <Signup value={value} error={signupError} busy={signingUp} />
+        : approval ? <ApprovalPrompt approval={approval} choice={choice} />
+        : <Input value={value} cols={cols} auto={auto} used={used} limit={limit} />}
       </Box>
     </>
   );

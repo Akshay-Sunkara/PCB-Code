@@ -12,7 +12,7 @@ import { Box, Text, useStdout } from "ink";
 import { BAR, FRAMES, ORANGE } from "./config.js";
 import { Markdown, Wrapped } from "./markdown.js";
 import type { Attachment } from "./attachments.js";
-import { fmt } from "./usage.js";
+import { fmt } from "./account.js";
 
 export type Item =
   | { kind: "welcome"; cwd: string }
@@ -141,5 +141,18 @@ export const Input = ({ value, cols, auto, used, limit }: { value: string; cols:
       </Box>
       {limit > 0 && <Text dimColor>{fmt(used)} / {fmt(limit)} tokens</Text>}
     </Box>
+  </Box>
+);
+
+export const Signup = ({ value, error, busy }: { value: string; error?: string; busy: boolean }) => (
+  <Box borderStyle="round" borderColor={ORANGE} paddingX={1} flexDirection="column">
+    <Text bold>Let's get you set up</Text>
+    <Box marginTop={1}><Text dimColor>Enter your email to get a token, or paste a token you already have.</Text></Box>
+    <Box marginTop={1}>
+      <Box width={2} flexShrink={0}><Text>❯</Text></Box>
+      <Text>{value}<Text inverse> </Text></Text>
+    </Box>
+    {busy && <Box marginTop={1}><Text dimColor>Signing up…</Text></Box>}
+    {error && <Box marginTop={1}><Text color="red">{error}</Text></Box>}
   </Box>
 );
