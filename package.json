@@ -1,0 +1,26 @@
+{
+  "name": "pcbcode",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "ink": "^7.1.1",
+    "openai": "^7.10.0",
+    "react": "^19.2.8",
+    "tsx": "^4.23.13"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "@types/react": "^19.2.18"
+  },
+  "bin": {
+    "pcbcode": "./pcbcode.js"
+  }
+}
